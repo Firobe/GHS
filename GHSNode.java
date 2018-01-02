@@ -137,7 +137,6 @@ public class GHSNode extends Node{
     public void send(Node d, Message m) {
         MessNPhase mp = new MessNPhase(m.getContent(), phase);
         super.send(d, new Message(mp, m.getFlag()));
-        System.out.println("sending " + m.getFlag() + " from " + getID() + " to " + d.getID());
     }
 
     /**
@@ -186,29 +185,33 @@ public class GHSNode extends Node{
             }
         } 
 
+        //Update curMCOE in case someone wants to merge with me later
+        curMCOE = rMCOE; 
+
         //Step 7
         //Process stored MERGE requests
-        for(Invitation p : mergeList) {
-            sons.add(p.sender);
-            //Systematically add to sons, although may be removed later
-            if(father == this //If I'm the fragment root
-                && rMCOE.equals(new Link(this, p.sender))
-                //And the edge between me and the sender is my MCOE
-                && frag < p.frag){ //And my fragment is inferior
-                    status = Status.ROOT; //Then I'm the new root
-                    phase++;
-                }
-        }
+        for(Invitation p : mergeList)
+            chooseRoot(p.sender, p.frag);
 
-        //If I'm the root, warn my sons with NEW
-        if(status == Status.ROOT) {
-            System.err.println(getID() + " is now a root");
+    }
+
+    private void chooseRoot(Node sender, Integer senderFrag) {
+        sons.add(sender);
+        //Systematically add to sons, although may be removed later
+        if(father == this //If I'm the fragment root
+                && curMCOE.equals(new Link(this, sender))
+                //And the edge between me and the sender is my MCOE
+                && frag < senderFrag){ //And my fragment is inferior
+
+            System.err.println("PHASE " + phase + " : "
+                    + getID() + " is a root");
+            status = Status.ROOT; //Then I'm the new root
+            //If I'm the root, warn my sons with NEW
+            phase++;
             //Step 8
             for(Node n : sons)
                 send(n, new Message(frag, "NEW"));
         }
-        //Update curMCOE in case someone wants to merge with me later
-        curMCOE = rMCOE; 
     }
 
     @Override
@@ -301,21 +304,7 @@ public class GHSNode extends Node{
                         send(sender, new Message(frag, "NEW"));
                     }
                     else if(status == Status.READY) { //READY
-                        Integer senderFrag = (Integer) content;
-                        Link outEdge = new Link(this, sender);
-                        sons.add(sender);
-                        if(father == this
-                            && curMCOE.equals(outEdge)
-                            && frag < senderFrag) {
-                            status = Status.ROOT;
-                            phase++;
-                        }
-                        if(status == Status.ROOT) {
-                            System.out.println(getID() + " is now a root");
-                            //Step 8
-                            for(Node n : sons)
-                                send(n, new Message(frag, "NEW"));
-                        }
+                        chooseRoot(sender, (Integer) content);
                     }
                 }
 
@@ -324,16 +313,19 @@ public class GHSNode extends Node{
                     //Step 10
                     father = sender;
                     frag = (Integer) content;
-		    phase = mp.phase;
+                    phase = mp.phase; //Sync phase with father frag
+
                     //If it turns out another fragment was the root,
                     //remove it from sons
                     int pos = sons.indexOf(father);
                     if(pos != -1)
                         sons.remove(pos);
                     
+                    //Propagate NEW
                     for(Node s : sons)
                         send(s, new Message(content, flag));
 
+                    //If I'm a leaf, reset and send ECHO
                     if(sons.isEmpty()) {
                         status = Status.BEGIN;
                         mergeList.clear();
@@ -343,23 +335,24 @@ public class GHSNode extends Node{
 
                 //ECHO
                 else if(flag == "ECHO") {
+                    //Message from the current fusion
                     if(status != Status.BEGIN) {
                         echoCounter++;
+                        //If received ECHO from every son
                         if(echoCounter == sons.size()) {
+                            //Reset state
                             status = Status.BEGIN;
                             mergeList.clear();
-                            if(father != this) {
+                            if(father != this) //Propagate to father
                                 send(father, new Message(content, flag));
-                }
-                            else { //I am root
+                            //If I'm root, new pulse in my fragment
                                 //Step 1
-                                processPulse();
-                            }
+                            else processPulse();
                         }
                     }
-                    else {
-                        send(sender, new Message(null, "PULSE"));
-                    }
+                    //Message from a late merger
+                    //Send him a PULSE to ensure he begins
+                    else send(sender, new Message(null, "PULSE"));
                 }
 
                 //DISP
@@ -369,21 +362,6 @@ public class GHSNode extends Node{
 
                 it.remove();
             }
-            else {
-                System.out.println("FURUETEU : " + getID());
-                System.out.println(phase + " < " + mp.phase);
-                System.out.println(m.getFlag());
-            }
         }
-    }
-
-    /*
-    @Override
-    public void onMessage(Message message) {
-    }*/
-
-    @Override
-    public void onSelection() {
-        // what to do when this node is selected by the user
     }
 }
