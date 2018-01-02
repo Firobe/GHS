@@ -2,62 +2,69 @@ import jbotsim.*;
 import jbotsim.Message;
 import java.util.*;
 
-public class TestNode extends Node{
+public class GHSNode extends Node{
     public enum Status {
         INIT,
         BEGIN,
         READY,
         ROOT;
     }
-    public class Patatoide {
+
+    public class Invitation {
         public Node sender;
         public Integer frag;
-        public Patatoide(Node s, Integer f) {
+        public Invitation(Node s, Integer f) {
             sender = s; frag = f;
         }
     }
 
-    private Integer frag;
-    private Node father;
-    private ArrayList<Node> sons;
-    private Status status;
-    private Integer phase;
+    private Integer frag; //ID of my fragment
+    private Node father; //Father in MST
+    private ArrayList<Node> sons; //Sons in MST
+    private Status status; //Current status (INIT, ..., ROOT)
+    private Integer phase; 
+    //Increased each time the root is updated during a merge
     private List<Node> neighbors;
+    //List of neighbors in the graph
+    //(to prevent multiple calls to getNeighbors)
 
-    private Integer pongCounter;
-
+    //Number of RFRAG, MCOE and ECHO to receive before propagating
     private Integer fragCounter;
-
     private Integer mcoeCounter;
-    private Link curMCOE;
-    private Node goodboy; //Son that sent minMCOE
-
-    private ArrayList<Patatoide> mergeList;
-
     private Integer echoCounter;
+
+    private Link curMCOE; //Current computed MCOE
+    private Node goodboy; //Son that sent MCOE (null if irrelevant)
+
+    private ArrayList<Invitation> mergeList;
+    //List of invitations (MERGE requests) before READY status
+
+    // Initialize the node variables
     @Override
     public void onStart() {
-        // initialize the node variables
         frag = getID();
         father = this;
         sons = new ArrayList<Node>();
-        mergeList = new ArrayList<Patatoide>();
+        mergeList = new ArrayList<Invitation>();
         status = Status.INIT;
         phase = 0;
         neighbors = getNeighbors();
     }
 
+    // Called at the beginning of a new phase
     public void init() {
         mcoeCounter = 0;
-        pongCounter = 0;
         curMCOE = null;
         goodboy = null;
         echoCounter = 0;
         fragCounter = 0;
     }
 
+    /**
+     * Strict order between edges
+     * (cf. poly)
+     */
     private boolean greaterThan(Link l) {
-        //STRICT ORDER
         if(l == null) return false;
         if(curMCOE == null) return true;
         int comp = l.compareTo(curMCOE);
@@ -74,6 +81,9 @@ public class TestNode extends Node{
         return (x2 < x1 || (x1 == x2 && y2 < y1));
     }
 
+    /**
+     * Used at the end to display the computed MST in dot
+     */
     private void disp() {
         for(Node s : sons) {
             System.out.println(getID() + "--"
@@ -82,36 +92,35 @@ public class TestNode extends Node{
         }
     }
 
+    /**
+     * Called when the MCOE is completely computed
+     * It must be either forwarded to father or (in case of the root)
+     * trigger a ACK broadcast.
+     *
+     * If there was no MCOE, the algorithm is finished and we
+     * display the MST.
+     */
     private void sendMCOE() {
         if(father != this)
             send(father, new Message(curMCOE, "MCOE"));
         else { //I am root
             if(curMCOE == null) {//Step 4
-                System.out.println("ALGOR THERMAINT");
+                System.out.println("Algorithme terminé");
                 System.out.println("graph {");
                 disp();
             }
             else {
                 //Step 5
                 ackProcess(curMCOE);
+                //Simulate sending a ACK with curMCOE to self
             }
         }
     }
 
-    private void mcoeProcess(Link l, Node sender) {
-        //Inside step 3
-        if(sender != null)
-            mcoeCounter++;
-        if(sender != null && greaterThan(l)) {
-            curMCOE = l;
-            goodboy = sender;
-        }
-
-        //Received MCOE from every son, send to father
-        if(mcoeCounter == sons.size() && fragCounter == 0)
-            sendMCOE();
-    }
-
+    /**
+     * Wrapper around a message to include
+     * the phase of its sender when it was sent
+     */
     public class MessNPhase {
         public Object object;
         public Integer phase;
@@ -121,53 +130,55 @@ public class TestNode extends Node{
         }
     }
 
+    /**
+     * For each message sent, wrap our pahse number inside
+     */
     @Override
     public void send(Node d, Message m) {
         MessNPhase mp = new MessNPhase(m.getContent(), phase);
         super.send(d, new Message(mp, m.getFlag()));
-        System.out.println("PHASE " + phase +
-                "(" + status.toString() + ")" +
-                " : " + getID() + " send to " +
-                d.getID() + " : " + m.getFlag());
+        System.out.println("sending " + m.getFlag() + " from " + getID() + " to " + d.getID());
     }
 
-    private void nextPulse() {
-        for(Node n : neighbors)
-            send(n, new Message(null, "PING"));
-    }
-
+    /**
+     * Called when a PULSE is received or to begin a new phase
+     */
     private void processPulse() {
         //Step 1
         init();
-        //nextPulse();
-        processPong();
-    }
-
-    private void processPong() {
-        for(Node n : neighbors)
+        for(Node n : neighbors) //Send PULSE to sons and FRAG to others
             if(sons.contains(n))
                 send(n, new Message(null, "PULSE"));
             else if (n != father){
                 send(n, new Message(null, "FRAG"));
-                fragCounter++;
+                fragCounter++; //Remember we must receive a RFRAG
             }
     }
 
+    /**
+     * Called when ACK is received
+     * Re-orientate the tree and send MERGE requests
+     * if necessary
+     */
     private void ackProcess(Link rMCOE) {
         //Step 5
+
+        //Propagate ACK to sons
         for(Node n : sons)
             send(n, new Message(rMCOE, "ACK"));
+
         //Update frag number
         frag = rMCOE.endpoint(0).getID();
         status = Status.READY;
+
+        //If on the path to MCOE, change orientation
         if(curMCOE != null && rMCOE.equals(curMCOE)) { 
-            //On the path to MCOE
             if(father != this) //Not current root
                 sons.add(father);
             father = goodboy;
             if(goodboy != null) //If not new root, swap
                 sons.remove(sons.indexOf(goodboy));
-            else { //I am u*
+            else { //If I am the one who computed the MCOE, MERGE
                 father = this;
                 //Step 6
                 send(curMCOE.endpoint(1), new Message(
@@ -176,29 +187,32 @@ public class TestNode extends Node{
         } 
 
         //Step 7
-        for(Patatoide p : mergeList) {
-            System.out.println("Patate avec " + (father == this) +
-                    " et " + (frag < p.frag));
+        //Process stored MERGE requests
+        for(Invitation p : mergeList) {
             sons.add(p.sender);
-            if(father == this
+            //Systematically add to sons, although may be removed later
+            if(father == this //If I'm the fragment root
                 && rMCOE.equals(new Link(this, p.sender))
-                && frag < p.frag) {
-                status = Status.ROOT;
-                phase++;
-            }
+                //And the edge between me and the sender is my MCOE
+                && frag < p.frag){ //And my fragment is inferior
+                    status = Status.ROOT; //Then I'm the new root
+                    phase++;
+                }
         }
+
+        //If I'm the root, warn my sons with NEW
         if(status == Status.ROOT) {
-            System.out.println(getID() + " is now fucking root");
+            System.err.println(getID() + " is now a root");
             //Step 8
             for(Node n : sons)
                 send(n, new Message(frag, "NEW"));
         }
-        curMCOE = rMCOE;
+        //Update curMCOE in case someone wants to merge with me later
+        curMCOE = rMCOE; 
     }
 
     @Override
     public void onClock() {
-        // code to be executed by this node in each round
         List<Message> received = getMailbox();
         //Initial pulse for the first phase
         if(status == Status.INIT) {
@@ -208,36 +222,28 @@ public class TestNode extends Node{
 
         //Reading messages
         for(Iterator<Message> it = received.iterator() ; it.hasNext() ; ) {
+            //Unwrap the sender's phase from the message
             Message m = it.next();
             MessNPhase mp = (MessNPhase) m.getContent();
+            //Only process a message if its not from the future
             if(mp.phase <= phase || m.getFlag() != "FRAG") {
+                //Create aliases
                 String flag = m.getFlag();
                 Object content = mp.object;
                 Node sender = m.getSender();
 
-                System.out.println(getID() + " received " + flag + " while its status was " + status.toString() + " : " + phase);
+                //Now filter the name of the message and proceed
+                //accordingly
 
-                        System.out.println("mergeList size : " +
-                                mergeList.size());
                 //PULSE
                 if(flag == "PULSE"){
-		    phase = mp.phase;
-		    processPulse();
-		}
-	   
-                else if(flag == "PING")
-                    send(sender, new Message(frag, "PONG"));
-
-                else if(flag == "PONG") {
-                    pongCounter++;
-                    if(pongCounter == neighbors.size())
-                        processPong();
+                    phase = mp.phase;
+                    processPulse();
                 }
-
+	   
                 //FRAG
                 else if(flag == "FRAG") //Step 2
-                    send(sender,
-                            new Message(frag, "RFRAG"));
+                    send(sender, new Message(frag, "RFRAG"));
                 
                 //RFRAG
                 else if(flag == "RFRAG") { //Step 2
@@ -256,7 +262,20 @@ public class TestNode extends Node{
 
                 //MCOE
                 else if(flag == "MCOE") {
-                    mcoeProcess((Link) content, sender);
+                    Link l = (Link) content;
+                    //Inside step 3
+                    if(sender != null) //If MCOE is not from myself
+                        mcoeCounter++;
+
+                    //Update local minimum
+                    if(sender != null && greaterThan(l)) {
+                        curMCOE = l;
+                        goodboy = sender; //Remember who sent it
+                    }
+
+                    //Received MCOE from every son, send to father
+                    if(mcoeCounter == sons.size() && fragCounter == 0)
+                        sendMCOE();
                 }
 
                 //ACK
@@ -269,12 +288,15 @@ public class TestNode extends Node{
                     if(status == Status.BEGIN
                             && phase == mp.phase) {
                         //Step 7
-                        mergeList.add(new Patatoide(sender,
+                        //If I'm not READY, store the request for later
+                        mergeList.add(new Invitation(sender,
                                     (Integer) content));
                     }
                     else if(status == Status.ROOT
                             || phase > mp.phase) {//
                         //Step 9
+                        //If the root has already been decided
+                        //Warns the late merge-wannabe with NEW
                         sons.add(sender);
                         send(sender, new Message(frag, "NEW"));
                     }
@@ -289,7 +311,7 @@ public class TestNode extends Node{
                             phase++;
                         }
                         if(status == Status.ROOT) {
-                            System.out.println(getID() + " is now fucking root");
+                            System.out.println(getID() + " is now a root");
                             //Step 8
                             for(Node n : sons)
                                 send(n, new Message(frag, "NEW"));

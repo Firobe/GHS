@@ -1,8 +1,8 @@
 all:
 	javac -cp .:jbotsim.jar *.java
 
-run: all
-	java -cp .:jbotsim.jar HelloWorld
+%.dot: all
+	java -cp .:jbotsim.jar Main $@
 
 clean:
 	rm *.class
