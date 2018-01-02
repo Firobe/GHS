@@ -33,6 +33,7 @@ public class BasicNode extends Node{
     private Node goodboy; //Son that sent minMCOE
 
     private ArrayList<Patatoide> mergeList;
+    private ArrayList<Node> echoToIgnore;
 
     private Integer echoCounter;
     @Override
@@ -42,6 +43,7 @@ public class BasicNode extends Node{
         father = this;
         sons = new ArrayList<Node>();
         mergeList = new ArrayList<Patatoide>();
+        echoToIgnore = new ArrayList<Node>();
         status = Status.INIT;
         phase = 0;
         neighbors = getNeighbors();
@@ -139,8 +141,8 @@ public class BasicNode extends Node{
     private void processPulse() {
         //Step 1
         init();
-        nextPulse();
-        //processPong();
+        //nextPulse();
+        processPong();
     }
 
     private void processPong() {
@@ -209,14 +211,17 @@ public class BasicNode extends Node{
         for(Iterator<Message> it = received.iterator() ; it.hasNext() ; ) {
             Message m = it.next();
             MessNPhase mp = (MessNPhase) m.getContent();
-            if(mp.phase <= phase) {
+            if(mp.phase <= phase || m.getFlag() == "RFRAG") {
                 String flag = m.getFlag();
                 Object content = mp.object;
                 Node sender = m.getSender();
+                System.out.println(getID() + " received " + flag + " while its status was " + status.toString() + " : " + phase);
 
                 //PULSE
-                if(flag == "PULSE")
+                if(flag == "PULSE") {
+                    phase = Math.min(phase, mp.phase);
                     processPulse();
+                }
 
                 else if(flag == "PING")
                     send(sender, new Message(frag, "PONG"));
@@ -267,7 +272,8 @@ public class BasicNode extends Node{
                     else if(status == Status.ROOT) {
                         //Step 9
                         sons.add(sender);
-                        send(sender, new Message(frag, "NEW"));
+                        //echoToIgnore.add(sender);
+                        send(sender, new Message(frag, "SNEW"));
                     }
                     else if(status == Status.READY) { //READY
                         Integer senderFrag = (Integer) content;
@@ -288,7 +294,7 @@ public class BasicNode extends Node{
                 }
 
                 //NEW
-                else if(flag == "NEW") {
+                else if(flag == "NEW"  || flag == "SNEW") {
                     //Step 10
                     father = sender;
                     frag = (Integer) content;
@@ -298,12 +304,14 @@ public class BasicNode extends Node{
                     int pos = sons.indexOf(father);
                     if(pos != -1)
                         sons.remove(pos);
+                    phase = Math.min(phase, mp.phase);
                     
                     for(Node s : sons)
                         send(s, new Message(content, flag));
 
                     if(sons.isEmpty()) {
-                        send(father, new Message(null, "ECHO"));
+                        if(flag == "NEW")
+                            send(father, new Message(null, "ECHO"));
                         phase++;
                     }
                     status = Status.ROOT;
@@ -311,19 +319,24 @@ public class BasicNode extends Node{
 
                 //ECHO
                 else if(flag == "ECHO") {
-                    echoCounter++;
-                    if(echoCounter == sons.size()) {
-                        status = Status.BEGIN;
-                        if(father != this) {
-                            send(father, new Message(content, flag));
-                            phase++;
-                        }
-                        else { //I am root
-                            //Step 1
-                            phase++;
-                            processPulse();
+                    int pos = echoToIgnore.indexOf(sender);
+                    if(pos == -1) {
+                        echoCounter++;
+                        if(echoCounter == sons.size()) {
+                            status = Status.BEGIN;
+                            if(father != this) {
+                                send(father, new Message(content, flag));
+                                phase++;
+                            }
+                            else { //I am root
+                                //Step 1
+                                phase = Math.min(phase, mp.phase);
+                                phase++;
+                                processPulse();
+                            }
                         }
                     }
+                    else echoToIgnore.remove(pos);
                 }
 
                 //DISP
