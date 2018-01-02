@@ -21,6 +21,7 @@ public class GHSNode extends Node{
     private Integer frag; //ID of my fragment
     private Node father; //Father in MST
     private ArrayList<Node> sons; //Sons in MST
+    private ArrayList<Node> lateSons; //Sons in MST
     private Status status; //Current status (INIT, ..., ROOT)
     private Integer phase; 
     //Increased each time the root is updated during a merge
@@ -48,6 +49,7 @@ public class GHSNode extends Node{
         sons = new ArrayList<Node>();
         mergeList = new ArrayList<Invitation>();
         status = Status.INIT;
+        lateSons =  new ArrayList<Node>();
         phase = 0;
         neighbors = getNeighbors();
     }
@@ -60,6 +62,7 @@ public class GHSNode extends Node{
         echoCounter = 0;
         dispCounter = 0;
         fragCounter = 0;
+        lateSons.clear();
     }
 
     /**
@@ -109,7 +112,7 @@ public class GHSNode extends Node{
             send(father, new Message(curMCOE, "MCOE"));
         else { //I am root
             if(curMCOE == null) {//Step 4
-                System.out.println("Algorithme terminé");
+                System.err.println("Algorithme terminé");
                 System.out.println("graph {");
                 disp();
             }
@@ -141,6 +144,7 @@ public class GHSNode extends Node{
     public void send(Node d, Message m) {
         MessNPhase mp = new MessNPhase(m.getContent(), phase);
         super.send(d, new Message(mp, m.getFlag()));
+        System.err.println("send " + m.getFlag() + " from " + getID() +  " to " + d.getID()+ "phase " + phase );
     }
 
     /**
@@ -150,7 +154,7 @@ public class GHSNode extends Node{
         //Step 1
         init();
         for(Node n : neighbors) //Send PULSE to sons and FRAG to others
-            if(sons.contains(n))
+            if(sons.contains(n)&& !lateSons.contains(n))
                 send(n, new Message(null, "PULSE"));
             else if (n != father){
                 send(n, new Message(null, "FRAG"));
@@ -292,12 +296,17 @@ public class GHSNode extends Node{
 
                 //MERGE
                 else if(flag == "MERGE") {
-                    if(status == Status.BEGIN
-                            && phase == mp.phase) {
+                    if(status == Status.BEGIN) {
                         //Step 7
                         //If I'm not READY, store the request for later
+                        if(phase == mp.phase)
                         mergeList.add(new Invitation(sender,
                                     (Integer) content));
+                        else{
+                            lateSons.add(sender);
+                            sons.add(sender);
+                            send(sender, new Message(frag, "NEW"));
+                        }
                     }
                     else if(status == Status.ROOT
                             || phase > mp.phase) {//
