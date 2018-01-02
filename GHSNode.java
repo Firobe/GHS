@@ -28,10 +28,11 @@ public class GHSNode extends Node{
     //List of neighbors in the graph
     //(to prevent multiple calls to getNeighbors)
 
-    //Number of RFRAG, MCOE and ECHO to receive before propagating
+    //Number of RFRAG, MCOE, ECHO, RDISP to receive before propagating
     private Integer fragCounter;
     private Integer mcoeCounter;
     private Integer echoCounter;
+    private Integer dispCounter;
 
     private Link curMCOE; //Current computed MCOE
     private Node goodboy; //Son that sent MCOE (null if irrelevant)
@@ -57,6 +58,7 @@ public class GHSNode extends Node{
         curMCOE = null;
         goodboy = null;
         echoCounter = 0;
+        dispCounter = 0;
         fragCounter = 0;
     }
 
@@ -90,6 +92,8 @@ public class GHSNode extends Node{
                     + s.getID() + ";");
             send(s, new Message(null, "DISP"));
         }
+        if(sons.isEmpty())
+            send(father, new Message(null, "RDISP"));
     }
 
     /**
@@ -356,8 +360,20 @@ public class GHSNode extends Node{
                 }
 
                 //DISP
-                else if(flag == "DISP") {
+                else if(flag == "DISP") //MST to dot
                     disp();
+
+                else if(flag == "RDISP") { //Answer to DISP to end
+                    dispCounter++;
+                    //Received RDISP from every son
+                    if(dispCounter == sons.size()) {
+                        if(father != this)
+                            send(father, new Message(content, flag));
+                        else {
+                            System.out.println("}");
+                            System.exit(0); //DEFINITIVE END
+                        }
+                    }
                 }
 
                 it.remove();
