@@ -62,7 +62,6 @@ public class GHSNode extends Node{
         echoCounter = 0;
         dispCounter = 0;
         fragCounter = 0;
-        lateSons.clear();
     }
 
     /**
@@ -108,8 +107,10 @@ public class GHSNode extends Node{
      * display the MST.
      */
     private void sendMCOE() {
-        if(father != this)
+        if(father != this) {
+            //System.err.println("I send " +( (curMCOE == null) ? "null" : curMCOE.toString() ));
             send(father, new Message(curMCOE, "MCOE"));
+        }
         else { //I am root
             if(curMCOE == null) {//Step 4
                 System.err.println("Algorithme terminé");
@@ -144,7 +145,7 @@ public class GHSNode extends Node{
     public void send(Node d, Message m) {
         MessNPhase mp = new MessNPhase(m.getContent(), phase);
         super.send(d, new Message(mp, m.getFlag()));
-        System.err.println("send " + m.getFlag() + " from " + getID() +  " to " + d.getID()+ " phase " + phase );
+        //System.err.println("send " + m.getFlag() + " from " + getID() +  " to " + d.getID()+ " phase " + phase );
     }
 
     /**
@@ -162,6 +163,8 @@ public class GHSNode extends Node{
                 send(n, new Message(null, "FRAG"));
                 fragCounter++; //Remember we must receive a RFRAG
             }
+        if(sons.size() == 0 && neighbors.size() == 1 && father != this)
+            send(father, new Message(null, "MCOE"));
     }
 
     /**
@@ -172,18 +175,12 @@ public class GHSNode extends Node{
     private void ackProcess(Link rMCOE) {
         //Step 5
 
-        System.err.println("RMCOE : " + rMCOE.endpoint(0).toString()
-                + " | " + rMCOE.endpoint(1).toString());
-        if(curMCOE != null)
-        System.err.println("CURMCOE : " + curMCOE.endpoint(0).toString()
-                + " | " + curMCOE.endpoint(1).toString());
-        System.err.println("badboi : " + goodboy);
         //Propagate ACK to sons
         for(Node n : sons)
             send(n, new Message(rMCOE, "ACK"));
 
         //Update frag number
-        frag = rMCOE.endpoint(0).getID();
+        //frag = rMCOE.endpoint(0).getID();
         status = Status.READY;
 
         //If on the path to MCOE, change orientation
@@ -252,7 +249,7 @@ public class GHSNode extends Node{
                 String flag = m.getFlag();
                 Object content = mp.object;
                 Node sender = m.getSender();
-                System.err.println(getID() + " received " + flag + " while its status was " + status.toString() + " : " + phase);
+                //System.err.println(getID() + " received " + flag + " while its status was " + status.toString() + " : " + phase);
 
                 //Now filter the name of the message and proceed
                 //accordingly
@@ -265,7 +262,10 @@ public class GHSNode extends Node{
 	   
                 //FRAG
                 else if(flag == "FRAG") //Step 2
+                {
+                    //System.err.println("I send back " + frag);
                     send(sender, new Message(frag, "RFRAG"));
+                }
                 
                 //RFRAG
                 else if(flag == "RFRAG") { //Step 2
@@ -356,6 +356,7 @@ public class GHSNode extends Node{
                     if(sons.isEmpty()) {
                         status = Status.BEGIN;
                         mergeList.clear();
+                        lateSons.clear();
                         send(father, new Message(null, "ECHO"));
                     }
                 }
@@ -370,6 +371,7 @@ public class GHSNode extends Node{
                             //Reset state
                             status = Status.BEGIN;
                             mergeList.clear();
+                            lateSons.clear();
                             if(father != this) //Propagate to father
                                 send(father, new Message(content, flag));
                             //If I'm root, new pulse in my fragment

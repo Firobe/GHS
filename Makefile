@@ -1,7 +1,11 @@
 TESTS=tutte \
+	  planar\ 15\ 3\ 3 \
 	  cycle\ 100 \
 	  hypercube\ 5 \
+	  mesh\ 5\ 10 \
+	  tree\ 150 \
 	  planar\ 75\ 3\ 3 \
+	  outerplanar\ 30 
 
 all:
 	@javac -cp .:jbotsim.jar *.java
