@@ -144,7 +144,7 @@ public class GHSNode extends Node{
     public void send(Node d, Message m) {
         MessNPhase mp = new MessNPhase(m.getContent(), phase);
         super.send(d, new Message(mp, m.getFlag()));
-        System.err.println("send " + m.getFlag() + " from " + getID() +  " to " + d.getID()+ "phase " + phase );
+        System.err.println("send " + m.getFlag() + " from " + getID() +  " to " + d.getID()+ " phase " + phase );
     }
 
     /**
@@ -154,8 +154,10 @@ public class GHSNode extends Node{
         //Step 1
         init();
         for(Node n : neighbors) //Send PULSE to sons and FRAG to others
-            if(sons.contains(n)&& !lateSons.contains(n))
-                send(n, new Message(null, "PULSE"));
+            if(sons.contains(n)) {
+                if(!lateSons.contains(n))
+                    send(n, new Message(null, "PULSE"));
+            }
             else if (n != father){
                 send(n, new Message(null, "FRAG"));
                 fragCounter++; //Remember we must receive a RFRAG
@@ -170,6 +172,12 @@ public class GHSNode extends Node{
     private void ackProcess(Link rMCOE) {
         //Step 5
 
+        System.err.println("RMCOE : " + rMCOE.endpoint(0).toString()
+                + " | " + rMCOE.endpoint(1).toString());
+        if(curMCOE != null)
+        System.err.println("CURMCOE : " + curMCOE.endpoint(0).toString()
+                + " | " + curMCOE.endpoint(1).toString());
+        System.err.println("badboi : " + goodboy);
         //Propagate ACK to sons
         for(Node n : sons)
             send(n, new Message(rMCOE, "ACK"));
@@ -198,14 +206,16 @@ public class GHSNode extends Node{
 
         //Step 7
         //Process stored MERGE requests
+        //Systematically add to sons, although may be removed later
+        for(Invitation p : mergeList)
+            sons.add(p.sender);
+
         for(Invitation p : mergeList)
             chooseRoot(p.sender, p.frag);
 
     }
 
     private void chooseRoot(Node sender, Integer senderFrag) {
-        sons.add(sender);
-        //Systematically add to sons, although may be removed later
         if(father == this //If I'm the fragment root
                 && curMCOE.equals(new Link(this, sender))
                 //And the edge between me and the sender is my MCOE
@@ -242,6 +252,7 @@ public class GHSNode extends Node{
                 String flag = m.getFlag();
                 Object content = mp.object;
                 Node sender = m.getSender();
+                System.err.println(getID() + " received " + flag + " while its status was " + status.toString() + " : " + phase);
 
                 //Now filter the name of the message and proceed
                 //accordingly
@@ -262,8 +273,10 @@ public class GHSNode extends Node{
                     Link l = new Link(this, sender);
                     //Update min if edge is outgoing
                     if((Integer) content != frag
-                            && greaterThan(l))
+                            && greaterThan(l)) {
                         curMCOE = l;
+                        goodboy = null; //Minimum provided by self
+                    }
 
                     //If already received every son MCOE and this
                     //is last RFRAG, propagate MCOE
@@ -308,8 +321,7 @@ public class GHSNode extends Node{
                             send(sender, new Message(frag, "NEW"));
                         }
                     }
-                    else if(status == Status.ROOT
-                            || phase > mp.phase) {//
+                    else if(status == Status.ROOT) {//
                         //Step 9
                         //If the root has already been decided
                         //Warns the late merge-wannabe with NEW
@@ -317,6 +329,7 @@ public class GHSNode extends Node{
                         send(sender, new Message(frag, "NEW"));
                     }
                     else if(status == Status.READY) { //READY
+                        sons.add(sender);
                         chooseRoot(sender, (Integer) content);
                     }
                 }
@@ -338,6 +351,7 @@ public class GHSNode extends Node{
                     for(Node s : sons)
                         send(s, new Message(content, flag));
 
+                    status = Status.ROOT;
                     //If I'm a leaf, reset and send ECHO
                     if(sons.isEmpty()) {
                         status = Status.BEGIN;
